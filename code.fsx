@@ -191,7 +191,7 @@ module Model =
             Width               : int
             Height              : int
             Table               : Map<Coordinate, CellType>
-            WeightTable         : Map<Coordinate, float option>
+            WeightTable         : Map<Coordinate, float32 option>
             SanityLossLonely    : int
             SanityLossGroup     : int
             WandererSpawnTime   : int
@@ -243,14 +243,14 @@ module Calculations =
     open Model
     open Helpers
 
-    let weightTable (state: Map<Coordinate, CellType>) (wanderers: WandererData list) (slashers: SlasherData list) (explorers: ExplorerData list) (effects: Effect list) =
+    let weightTable (state: Map<Coordinate, CellType>) (width: int) (height: int) (wanderers: WandererData list) (slashers: SlasherData list) (explorers: ExplorerData list) (effects: Effect list) =
         state
         |> Map.map(fun coord _ ->
             let weight =
                 match state.TryFind coord with
-                | Some WandererSpawn -> Some 50.
-                | Some Empty -> Some 10.
-                | Some Shelter -> Some 0.
+                | Some WandererSpawn -> Some 150.f
+                | Some Empty -> Some 100.f
+                | Some Shelter -> Some 0.f
                 | Some Wall
                 | _ -> None
             let shelter =
@@ -270,11 +270,6 @@ module Calculations =
                 explorers
                 |> List.exists (fun wan -> 
                     wan.Position = coord
-                    // ||
-                    // directions
-                    // |> List.exists (fun dir ->
-                    //     wan.Position = addDistance coord dir
-                    // )
                 )
             let explorerNeighbor =
                 explorers
@@ -294,20 +289,6 @@ module Calculations =
                 wanderers
                 |> List.exists (fun wan -> 
                     wan.Position = coord
-                    ||
-                    directions
-                    |> List.exists (fun dir ->
-                        let rec has n had innercoord = 
-                            if n = 0 then
-                                had
-                            else
-                                directions
-                                |> List.exists (fun dir ->
-                                    let hasIt = (addDistance innercoord dir) <> coord && wan.Position = addDistance innercoord dir
-                                    has (n-1) (hasIt || had) (addDistance innercoord dir)
-                                )
-                        has 2 false coord
-                    )
                 )
             let wandererNeighbor =
                 wanderers
@@ -321,68 +302,153 @@ module Calculations =
                                 let hasIt = (addDistance innercoord dir) <> coord && wan.Position = addDistance innercoord dir
                                 has (n-1) (hasIt || had) (addDistance innercoord dir)
                             )
-                    has 2 false coord
+                    has 3 false coord
                 )
             let slasher =
                 slashers
                 |> List.exists (fun wan -> 
                     wan.Position = coord
-                    ||
-                    directions
-                    |> List.exists (fun dir ->
-                        let rec has n had innercoord = 
-                            if n = 0 then
-                                had
-                            else
-                                directions
-                                |> List.exists (fun dir ->
-                                    let hasIt = (addDistance innercoord dir) <> coord && wan.Position = addDistance innercoord dir
-                                    has (n-1) (hasIt || had) (addDistance innercoord dir)
-                                )
-                        has 2 false coord
-                    )
                 )
             let slasherNeighbor =
                 slashers
                 |> List.exists (fun wan -> 
-                    wan.Param1 = 3 && (coord.X = wan.Position.X || coord.Y = wan.Position.Y)
+                    if wan.Param1 <> 3 then
+                        false
+                    elif coord.X = wan.Position.X then
+                        let left =
+                            Array.init (wan.Position.Y) (fun coordY ->
+                                let pos = {X = wan.Position.X; Y = wan.Position.Y - coordY}
+                                match state.TryFind pos with
+                                | Some cell -> pos, cell
+                                | None -> failwith "lul"
+                            )
+                            |> Array.takeWhile (fun (pos, cell) ->
+                                match cell with
+                                | Wall -> false
+                                | _ -> 
+                                    match explorers with
+                                    | [] -> true
+                                    | [_] -> true
+                                    | xs ->
+                                        xs.Tail
+                                        |> List.exists (fun exp ->
+                                            exp.Position = pos
+                                        )
+                                        |> not
+                            )
+                            |> Array.map fst
+                            |> Array.contains coord
+                        let right =
+                            Array.init (height - wan.Position.Y) (fun coordY ->
+                                let pos = {X = wan.Position.X; Y = wan.Position.Y + coordY}
+                                match state.TryFind pos with
+                                | Some cell -> pos, cell
+                                | None -> failwith (sprintf "lul %A" pos)
+                            )
+                            |> Array.takeWhile (fun (pos, cell) ->
+                                match cell with
+                                | Wall -> false
+                                | _ -> 
+                                    match explorers with
+                                    | [] -> true
+                                    | [_] -> true
+                                    | xs ->
+                                        xs.Tail
+                                        |> List.exists (fun exp ->
+                                            exp.Position = pos
+                                        )
+                                        |> not
+                            )
+                            |> Array.map fst
+                            |> Array.contains coord
+                        right || left
+                    elif coord.Y = wan.Position.Y then
+                        let up =
+                            Array.init (wan.Position.X) (fun coordX ->
+                                let pos = {X = wan.Position.X - coordX; Y = wan.Position.Y}
+                                match state.TryFind pos with
+                                | Some cell -> pos, cell
+                                | None -> failwith "lul"
+                            )
+                            |> Array.takeWhile (fun (pos, cell) ->
+                                match cell with
+                                | Wall -> false
+                                | _ -> 
+                                    match explorers with
+                                    | [] -> true
+                                    | [_] -> true
+                                    | xs ->
+                                        xs.Tail
+                                        |> List.exists (fun exp ->
+                                            exp.Position = pos
+                                        )
+                                        |> not
+                            )
+                            |> Array.map fst
+                            |> Array.contains coord
+                        let down =
+                            Array.init (width - wan.Position.X) (fun coordX ->
+                                let pos = {X = wan.Position.X + coordX; Y = wan.Position.Y}
+                                match state.TryFind pos with
+                                | Some cell -> pos, cell
+                                | None -> failwith "lul"
+                            )
+                            |> Array.takeWhile (fun (pos, cell) ->
+                                match cell with
+                                | Wall -> false
+                                | _ -> 
+                                    match explorers with
+                                    | [] -> true
+                                    | [_] -> true
+                                    | xs ->
+                                        xs.Tail
+                                        |> List.exists (fun exp ->
+                                            exp.Position = pos
+                                        )
+                                        |> not
+                            )
+                            |> Array.map fst
+                            |> Array.contains coord
+                        up || down
+                    else
+                        false
                 )
             match weight with
             | None -> None
             | Some weight ->
                 let weight = 
                     if shelter then
-                        weight - 100.
+                        weight - 50.f
                     else
                         weight
                 let weight =
                     if slasherNeighbor then
-                        weight + 200.
+                        weight + 500.f
                     else
                         weight
                 let weight =
                     if wandererNeighbor then
-                        weight + 200.
+                        weight + 300.f
                     else
                         weight
                 let weight =
                     if slasher then
-                        weight + 300.
+                        weight + 300.f
                     else
                         weight
                 let weight =
                     if wanderer then
-                        weight + 300.
+                        weight + 500.f
                     else
                         weight
                 let weight =
                     if explorer then
-                        weight - 100.
+                        weight - 250.f
                     else
                         weight
                 let weight =
                     if explorerNeighbor then
-                        weight - 20.
+                        weight - 200.f
                     else
                         weight
                 Some weight
@@ -412,7 +478,7 @@ module Calculations =
             Width               = width
             Height              = height
             Table               = state
-            WeightTable         = weightTable state [] [] [] []
+            WeightTable         = weightTable state width height [] [] [] []
             SanityLossLonely    = sanityLossLonely
             SanityLossGroup     = sanityLossGroup
             WandererSpawnTime   = wandererSpawnTime
@@ -449,7 +515,7 @@ module Calculations =
             Explorers   = myPlayer :: explorers
             Wanderers   = wanderers
             Effects     = effects
-            WeightTable = weightTable old.Table wanderers slashers explorers effects
+            WeightTable = weightTable old.Table old.Width old.Height wanderers slashers explorers effects 
             Slashers    = slashers
         }
 
@@ -508,24 +574,24 @@ module Calculations =
                     )
                 not current && myLight > 0 && hasWandererClose//&& others
             let useYell =
-                false
-                // let explorersCloseToMe =
-                //     newState.Explorers.Tail
-                //     |> List.exists (fun exp ->
-                //         let close = distance exp.Position myPlayer.Position < 3
-                //         // let hasWandererClose =
-                //         //     newState.Wanderers
-                //         //     |> List.exists (fun wan -> 
-                //         //         distance wan.Position exp.Position < 3
-                //         //     )
-                //         let hasSlasherInLine =
-                //             newState.Slashers
-                //             |> List.exists (fun wan ->
-                //                 wan.State = 3 && (wan.Position.X = exp.Position.X || wan.Position.Y = exp.Position.Y)
-                //             )
-                //         close && hasSlasherInLine
-                //     )
-                // explorersCloseToMe
+                //false
+                let explorersCloseToMe =
+                    newState.Explorers.Tail
+                    |> List.exists (fun exp ->
+                        let close = distance exp.Position myPlayer.Position < 3
+                        // let hasWandererClose =
+                        //     newState.Wanderers
+                        //     |> List.exists (fun wan -> 
+                        //         distance wan.Position exp.Position < 3
+                        //     )
+                        let hasSlasherInLine =
+                            newState.Slashers
+                            |> List.exists (fun wan ->
+                                wan.State = 3 && (wan.Position.X = exp.Position.X || wan.Position.Y = exp.Position.Y)
+                            )
+                        close && hasSlasherInLine
+                    )
+                explorersCloseToMe
             let closestExplorer =
                 let explorers =
                     newState.Explorers.Tail
@@ -547,24 +613,40 @@ module Calculations =
                     | Some v -> 
                         let v =
                             directions
-                            |> List.fold (fun weight ndir ->
+                            |> List.fold (fun (weight, count) ndir ->
                                 let nstep = addDistance ndir step
                                 if nstep <> myPlayer.Position then
                                     match newState.GetWeight nstep with
-                                    | Some v -> v + weight
-                                    | None -> weight
+                                    | Some v -> v + weight, count + 1.f
+                                    | None -> weight, count
                                 else
-                                    weight
-                            ) v
-                        eprintfn "%A" (v, step)
+                                    weight, count
+                            ) (v, 0.f)
                         Some (v, step)
+                        //eprintfn "%A" (v, step)
+                        // let dirs =
+                        //     directions
+                        //     |> List.map (fun ndir ->
+                        //         let step = addDistance step ndir
+                        //         match newState.GetWeight step with
+                        //         | Some nv -> 
+                        //             //eprintfn "%A" (nv, step)
+                        //             Some (nv, step)
+                        //         | None -> None
+                        //     )
+                        //     |> List.choose id
+                        // Some ((v, step) :: dirs)
                     | None -> None
                 )
                 |> List.choose id
+                // |> List.concat
+            let weightAround =
+                weightAround
+                |> List.map (fun ((v, c), coord) -> v / c, coord)
             let noDanger = 
                 weightAround 
                 |> List.forall (fun (i, _) -> 
-                    i < 150.
+                    i < 150.f
                 )
             let bestPath = 
                 weightAround
@@ -598,8 +680,8 @@ module Calculations =
                 let myPos = 
                     match newState.GetWeight myPlayer.Position with
                     | Some v -> v
-                    | None -> 0.
-                if myPos < 0. then
+                    | None -> 0.f
+                if myPos < 120.f then
                     Wait
                 elif noDanger then
                     Wait
